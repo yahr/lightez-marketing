@@ -3,6 +3,7 @@ import os
 import re
 import html
 import json
+import base64
 import datetime as dt
 import requests
 import pandas as pd
@@ -51,6 +52,57 @@ def _auth_headers(content_json=False):
         headers["Content-Type"] = "application/json"
     return headers
 
+# ---------- Header (Logo + Title) ----------
+def _read_logo_b64():
+    # 우선 제공된 경로를 시도하고, 없으면 로컬 파일명 대체
+    candidates = [
+        "/mnt/data/logo.light.ez_3_tr.png",  # 제공 경로
+        "logo_ez.png",                       # 프로젝트 루트에 저장했을 경우
+    ]
+    for p in candidates:
+        try:
+            with open(p, "rb") as f:
+                return base64.b64encode(f.read()).decode("ascii")
+        except Exception:
+            continue
+    return None
+
+def render_header(
+    title: str = "가볍지이지 마케팅 툴 v1.0",
+    subtitle: str = "블로그 · 카페글 · 지역 · 데이터랩 · 쇼핑인사이트"
+):
+    b64 = _read_logo_b64()
+    if not b64:
+        # 로고가 없으면 텍스트 헤더만
+        st.markdown(f"### {title}\n<span style='color:#6b7280'>{subtitle}</span>", unsafe_allow_html=True)
+        return
+
+    header_html = f"""
+<!doctype html>
+<html>
+<head><meta charset="utf-8"/>
+<style>
+  .app-header {{
+    display:flex; align-items:center; gap:14px; margin:4px 0 16px;
+  }}
+  .app-title {{ font-weight:800; font-size:1.25rem; line-height:1.2; }}
+  .app-sub   {{ color:#6b7280; font-size:.95rem; }}
+  img {{ width:44px; height:44px; }}
+</style>
+</head>
+<body>
+  <div class="app-header">
+    <img src="data:image/png;base64,{b64}" alt="logo"/>
+    <div>
+      <div class="app-title">{title}</div>
+      <div class="app-sub">{subtitle}</div>
+    </div>
+  </div>
+</body>
+</html>
+"""
+    components.html(header_html, height=80)
+
 # ---------- Utils ----------
 def strip_b_tags(text: str) -> str:
     if not isinstance(text, str):
@@ -97,7 +149,7 @@ def call_search(api_url: str, query: str, start: int, display: int, sort: str):
 @st.cache_data(show_spinner=False, ttl=600)
 def fetch_filtered_page(api_url: str, query: str, sort: str, page_size: int, page_index: int):
     """
-    정확 일치 ON일 때:
+    정확 일치 ON:
     - 제목/요약의 <b> 제거 후 query '그대로'(대소문자/띄어쓰기 포함) 포함 항목만 누적.
     - 1→1000 범위를 100개 단위로 가져와 필요한 페이지만 반환.
     """
@@ -107,8 +159,7 @@ def fetch_filtered_page(api_url: str, query: str, sort: str, page_size: int, pag
         code, data = cached_get(
             api_url, headers, {"query": query, "start": start, "display": API_PAGE_SIZE, "sort": sort}
         )
-        if code != 200:
-            break
+        if code != 200: break
         items = data.get("items", []) or []
         if not items: break
         for it in items:
@@ -326,8 +377,12 @@ def render_local_table(items: list[dict], highlighter):
 
 # ================== Streamlit App ==================
 def main():
-    st.set_page_config(page_title="NAVER 통합 검색 (블로그/카페/지역/데이터랩/쇼핑)", page_icon="🔎", layout="wide")
-    st.title("🔎 NAVER 통합 검색 (블로그 / 카페글 / 지역 / 데이터랩 / 쇼핑인사이트)")
+    st.set_page_config(
+        page_title="가볍지이지 네이버 검색",
+        page_icon="🔎",
+        layout="wide"
+    )
+    render_header()  # 로고 + 타이틀
 
     # Sidebar: credentials
     with st.sidebar:
@@ -343,7 +398,7 @@ def main():
             os.environ["NAVER_CLIENT_SECRET"] = csec_input
             st.info("현재 세션에 자격증명을 적용했습니다.")
         st.markdown("---")
-        st.caption("동일 파라미터는 캐시되어 쿼터 사용을 줄입니다. (10분 TTL)")
+        st.caption("동일 파라미터는 캐시(10분)되어 쿼터 사용을 줄입니다. 블로그/카페 start≤1000.")
 
     # 공통 검색어
     query = st.text_input("공통 검색어 (블로그/카페/지역/트렌드/쇼핑)", value="리뷰 자동화")
@@ -649,7 +704,7 @@ def main():
             else:
                 st.info("카테고리 코드와 ‘그룹이름=검색어’를 입력하세요.")
 
-    st.caption("※ 조회는 자동 실행되며, 동일 파라미터 재호출은 캐시(10분)되어 쿼터를 절약합니다. 블로그/카페는 start≤1000 제약, 지역은 최대 5건, DataLab/쇼핑인사이트의 ratio는 집합 내 최대=100 기준 상대값입니다.")
+    st.caption("※ 자동 조회 + 캐시(10분)로 쿼터 절약. 블로그/카페는 start≤1000, 지역은 최대 5건, DataLab/쇼핑의 ratio는 동일 집합 내 최대=100 기준 상대값입니다.")
 
 if __name__ == "__main__":
     main()
